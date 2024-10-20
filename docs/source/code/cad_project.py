@@ -142,6 +142,21 @@ def nuclei_classificationnn():
             training_loss[k] = loss_fun(Theta) / batch_size
             validation_loss[k] = cad.lr_nll(validation_x_ones, validation_y, Theta) / validation_x.shape[0]
 
+            # visualize the training
+            h1.set_ydata(training_loss)
+            h2.set_ydata(validation_loss)
+            text_str2 = 'iter.: {}, loss: {:.3f}, val. loss={:.3f} '.format(k, training_loss[k], validation_loss[k])
+            txt2.set_text(text_str2)
+    
+            Theta = None
+            Theta = np.array(Theta_new)
+            Theta_new = None
+            tmp = None
+    
+            display(fig)
+            clear_output(wait = True)
+            plt.pause(.005)
+
         # Final validation loss after training
         final_val_loss = validation_loss[-1]
         
