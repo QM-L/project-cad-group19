@@ -17,72 +17,92 @@ import scipy
 from IPython.display import display, clear_output
 import scipy.io
 import random
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from collections import Counter
+from sklearn.decomposition import PCA
 
 def nuclei_measurement():
 
     fn = '../data/nuclei_data.mat'
     mat = scipy.io.loadmat(fn)
-    test_images = mat["test_images"] # shape (24, 24, 3, 20730)
-    test_y = mat["test_y"] # shape (20730, 1)
-    training_images = mat["training_images"] # shape (24, 24, 3, 21910)
-    training_y = mat["training_y"] # shape (21910, 1)
+    test_images = mat["test_images"]  # shape (24, 24, 3, 20730)
+    test_y = mat["test_y"]  # shape (20730, 1)
+    training_images = mat["training_images"]  # shape (24, 24, 3, 21910)
+    training_y = mat["training_y"]  # shape (21910, 1)
 
     montage_n = 300
     sort_ix = np.argsort(training_y, axis=0)
-    sort_ix_low = sort_ix[:montage_n] # get the 300 smallest
-    sort_ix_high = sort_ix[-montage_n:] #Get the 300 largest
+    sort_ix_low = sort_ix[:montage_n]  # get the 300 smallest
+    sort_ix_high = sort_ix[-montage_n:]  # Get the 300 largest
 
-    # visualize the 300 smallest and the 300 largest nuclei
-    X_small = training_images[:,:,:,sort_ix_low.ravel()]
-    X_large = training_images[:,:,:,sort_ix_high.ravel()]
-    fig = plt.figure(figsize=(16,8))
-    ax1  = fig.add_subplot(121)
-    ax2  = fig.add_subplot(122)
+    # Visualize the 300 smallest and the 300 largest nuclei
+    X_small = training_images[:, :, :, sort_ix_low.ravel()]
+    X_large = training_images[:, :, :, sort_ix_high.ravel()]
+    fig = plt.figure(figsize=(16, 8))
+    ax1 = fig.add_subplot(121)
+    ax2 = fig.add_subplot(122)
     util.montageRGB(X_small, ax1)
     ax1.set_title('300 smallest nuclei')
     util.montageRGB(X_large, ax2)
     ax2.set_title('300 largest nuclei')
 
-    # dataset preparation
+    # Dataset preparation
     imageSize = training_images.shape
-    
-    # every pixel is a feature so the number of features is:
-    # height x width x color channels
-    numFeatures = imageSize[0]*imageSize[1]*imageSize[2]
+
+    # Every pixel is a feature, so the number of features is height x width x color channels
+    numFeatures = imageSize[0] * imageSize[1] * imageSize[2]
     training_x = training_images.reshape(numFeatures, imageSize[3]).T.astype(float)
     test_x = test_images.reshape(numFeatures, test_images.shape[3]).T.astype(float)
 
-    ## training linear regression model
-    #---------------------------------------------------------------------#
-    # TODO: Implement training of a linear regression model for measuring
-    # the area of nuclei in microscopy images. Then, use the trained model
-    # to predict the areas of the nuclei in the test dataset.
-    #---------------------------------------------------------------------#
+    ## Train a linear regression model on the full training dataset
+    model_full = LinearRegression()
+    model_full.fit(training_x, training_y.ravel())  # Fit model to full training data
 
-    # visualize the results
-    fig2 = plt.figure(figsize=(16,8))
-    ax1  = fig2.add_subplot(121)
-    line1, = ax1.plot(test_y, predicted_y, ".g", markersize=3)
+    # Predict the nuclei areas for the test set
+    predicted_y_full = model_full.predict(test_x)
+
+    ## Train a linear regression model using a reduced dataset (every 4th training sample)
+    reduced_indices = np.arange(0, training_x.shape[0], 4)  # Select every 4th sample
+    training_x_reduced = training_x[reduced_indices]
+    training_y_reduced = training_y[reduced_indices]
+
+    model_reduced = LinearRegression()
+    model_reduced.fit(training_x_reduced, training_y_reduced.ravel())  # Fit model to reduced training data
+
+    # Predict the nuclei areas for the test set with the reduced model
+    predicted_y_reduced = model_reduced.predict(test_x)
+
+    # Calculate and print errors
+    mse_full = mean_squared_error(test_y, predicted_y_full)
+    mae_full = mean_absolute_error(test_y, predicted_y_full)
+    
+    mse_reduced = mean_squared_error(test_y, predicted_y_reduced)
+    mae_reduced = mean_absolute_error(test_y, predicted_y_reduced)
+    
+    print(f"Full sample model - MSE: {mse_full:.4f}, MAE: {mae_full:.4f}")
+    print(f"Reduced sample model - MSE: {mse_reduced:.4f}, MAE: {mae_reduced:.4f}")
+
+    # Visualize the results
+    fig2 = plt.figure(figsize=(16, 8))
+    
+    ax1 = fig2.add_subplot(121)
+    ax1.plot(test_y, predicted_y_full, ".g", markersize=3)
     ax1.grid()
-    ax1.set_xlabel('Area')
+    ax1.set_xlabel('Actual Area')
     ax1.set_ylabel('Predicted Area')
     ax1.set_title('Training with full sample')
 
-    #training with smaller number of training samples
-    #---------------------------------------------------------------------#
-    # TODO: Train a model with reduced dataset size (e.g. every fourth
-    # training sample).
-    #---------------------------------------------------------------------#
-
-    # visualize the results
-    ax2  = fig2.add_subplot(122)
-    line2, = ax2.plot(test_y, predicted_y, ".g", markersize=3)
+    ax2 = fig2.add_subplot(122)
+    ax2.plot(test_y, predicted_y_reduced, ".g", markersize=3)
     ax2.grid()
-    ax2.set_xlabel('Area')
+    ax2.set_xlabel('Actual Area')
     ax2.set_ylabel('Predicted Area')
     ax2.set_title('Training with smaller sample')
+
+    plt.show()
     
-def nuclei_classificationnn():
+def nuclei_classification():
     ## dataset preparation
     
     fn = '../data/nuclei_data_classification.mat'
@@ -199,6 +219,84 @@ def nuclei_classificationnn():
     ax2.grid()
     plt.legend()
     plt.show()
+
+def KNearest(k=3):
+    
+    """
+    Runs K-Nearest Neighbors classification on nuclei data from a .mat file.
+    
+    Parameters:
+    mat_file_path: str, path to the .mat file containing nuclei data
+    k: int, number of neighbors to consider in K-NN (default is 5)
+    
+    Returns:
+    predictions: numpy array, predicted labels for the test images
+    accuracy: float, accuracy of the K-NN classifier on the test data (if test labels are provided)
+    """
+
+    # Load data from the .mat file
+    fn = '../data/nuclei_data.mat'
+    mat = scipy.io.loadmat(fn)
+    
+    # Extract test and training images, and labels
+    test_images = mat["test_images"]  # shape (24, 24, 3, 20730)
+    test_y = mat.get("test_y")  # shape (20730, 1), optional test labels
+    training_images = mat["training_images"]  # shape (24, 24, 3, 21910)
+    training_y = mat["training_y"]  # shape (21910, 1)
+    # Flatten the entire original training set (all nuclei)
+    training_x_full = training_images.reshape(21910, -1).astype(float)  # Shape: (21910, 1728)
+    print(training_x_full.shape)
+    # Sort indices of small and large nuclei based on the labels
+    sort_ix = np.argsort(training_y, axis=0).ravel()  # Flatten the sorting indices
+    sort_ix_low = sort_ix[:300]  # Indices of the 300 smallest nuclei
+    sort_ix_high = sort_ix[-300:]  # Indices of the 300 largest nuclei
+    
+    # Initialize a label array with NaN for all entries (21910 total)
+    labels = np.full((training_x_full.shape[0], 1), np.nan)  # Shape: (21910, 1)
+    
+    # Assign 0 to the smallest 300 nuclei and 1 to the largest 300 nuclei
+    labels[sort_ix_low] = 0  # Label for the smallest nuclei
+    labels[sort_ix_high] = 1  # Label for the largest nuclei
+    
+    pca = PCA(n_components=5)
+    training_x_pca = pca.fit_transform(training_x_full)
+    training_x_combined = np.hstack((training_x_pca, labels))  # Shape: (21910, 1729)
+
+ 
+    small_nuclei = training_x_combined[training_x_combined[:, 5] == 0]
+    large_nuclei = training_x_combined[training_x_combined[:, 5] == 1]
+    Combined_Data = np.vstack((small_nuclei, large_nuclei))
+
+    test_x = test_images.reshape(20730, -1).astype(float)  # Shape: (20730, 1728)
+    # Apply the previously trained PCA transformation on the test data
+    X_Test_Pca = pca.transform(test_x)
+    X_Test_Pca = X_Test_Pca[:300]
+    Twos_column = np.zeros((X_Test_Pca.shape[0],1))
+    Test_Images_Twos = np.hstack((X_Test_Pca, Twos_column))
+    
+    
+    def distance(x1, y1, x2, y2, x3, y3, x4, y4, x5, y5):
+        return np.sqrt(((x1-y1) * 2) + ((x2-y2) * 2) + ((x3-y3) * 2) + ((x4-y4) * 2) + ((x5-y5) ** 2))
+
+    def KNN(DataSet, image, k):
+        DistanceList = []
+        for P1, P2, P3, P4, P5, Label in DataSet:
+            Distance = distance(image[0], P1, image[1], P2, image[2], P3, image[3], P4, image[4], P5)
+            DistanceList.append((Distance, Label))
+        Distance.sort
+        DistanceList = sorted(DistanceList, key=lambda x: x[0])
+        count_small = sum(1 for item in DistanceList[:k] if item[1] == 0)
+        count_big = sum(1 for item in DistanceList[:k] if item[1] == 1)
+        if count_small > count_big:
+            image[5] = 0
+            print("small bitch")
+        else:
+            image[5] = 1
+            print("big bitch")
+
+    for image in Test_Images_Twos:
+        KNN(Combined_Data, image, 3)
+
 
 ## Edited version of 2.3's Training class (with editable parameters)
 class Training:
@@ -389,11 +487,6 @@ class Training:
         print(f'Best parameters (lr, batch, features): {best_params}, with validation accuracy: {best_acc}')
         return best_params
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-    
-=======
-
 def plot_confusion_matrix(true_positives=0,false_positives=0,true_negatives=0,false_negatives=0, title="insert a title"):
     matrix = np.array([[false_negatives,true_positives],
                        [true_negatives,false_positives]])
@@ -422,7 +515,3 @@ def plot_confusion_matrix(true_positives=0,false_positives=0,true_negatives=0,fa
     ax.set_title(title)
     fig.tight_layout()
     plt.show()
->>>>>>> 8ad9d671a2ba89dcfb9063e91816459af88e5ebf
-=======
-    
->>>>>>> 4de7a58d309a5e1359b2a817da6c49fc7f290000
