@@ -209,7 +209,6 @@ def nuclei_classificationnn():
 
 
 def KNearest(k=3):
-    
     """
     Runs K-Nearest Neighbors classification on nuclei data from a .mat file.
     
@@ -246,11 +245,15 @@ def KNearest(k=3):
     labels[sort_ix_low] = 0  # Label for the smallest nuclei
     labels[sort_ix_high] = 1  # Label for the largest nuclei
     
-    pca = PCA(n_components=5)
+    pca = PCA(n_components=0.95)
     training_x_pca = pca.fit_transform(training_x_full)
     training_x_combined = np.hstack((training_x_pca, labels))  # Shape: (21910, 1729)
+    
+    # give information
+    explained = pca.explained_variance_ratio_.cumsum()[-1]*100
+    num_components = pca.components_.shape[0]
+    print(f"{explained:.1f}% explained using {num_components} components.")
 
- 
     small_nuclei = training_x_combined[training_x_combined[:, 5] == 0]
     large_nuclei = training_x_combined[training_x_combined[:, 5] == 1]
     Combined_Data = np.vstack((small_nuclei, large_nuclei))
@@ -267,6 +270,7 @@ def KNearest(k=3):
         return np.sqrt(((x1-y1) * 2) + ((x2-y2) * 2) + ((x3-y3) * 2) + ((x4-y4) * 2) + ((x5-y5) ** 2))
 
     def KNN(DataSet, image, k):
+        Distance = []
         DistanceList = []
         for P1, P2, P3, P4, P5, Label in DataSet:
             Distance = distance(image[0], P1, image[1], P2, image[2], P3, image[3], P4, image[4], P5)
@@ -277,10 +281,10 @@ def KNearest(k=3):
         count_big = sum(1 for item in DistanceList[:k] if item[1] == 1)
         if count_small > count_big:
             image[5] = 0
-            print("small bitch")
+            #print("small bitch")
         else:
             image[5] = 1
-            print("big bitch")
+            #print("big bitch")
 
     for image in Test_Images_Twos:
         KNN(Combined_Data, image, 3)
