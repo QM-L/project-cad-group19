@@ -10,7 +10,7 @@ def sigmoid(a):
     # a - value for which the sigmoid function should be computed
     # Output:
     # s - output of the sigmoid function
-
+    a = np.clip(a, -500, 500)
     s = 1 / (1 + np.exp(-a))
     return s
 
@@ -27,6 +27,10 @@ def lr_nll(X, Y, Theta):
 
     # compute the predicted probability by the logistic regression model
     p = sigmoid(X.dot(Theta))
+    
+    #Avoid getting numbers equal to 0 or 1
+    epsilon = 1e-10
+    p = np.clip(p, epsilon, 1 - epsilon)
     
     # sum method
     L = -np.sum(Y*np.log(p) + (1-Y)*np.log(1-p))

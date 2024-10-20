@@ -76,93 +76,109 @@ def nuclei_measurement():
     ax2.set_xlabel('Area')
     ax2.set_ylabel('Predicted Area')
     ax2.set_title('Training with smaller sample')
-
-
-def nuclei_classification():
+    
+def nuclei_classificationnn():
     ## dataset preparation
     
     fn = '../data/nuclei_data_classification.mat'
     mat = scipy.io.loadmat(fn)
 
-    test_images = mat["test_images"] # (24, 24, 3, 20730)
-    test_y = mat["test_y"] # (20730, 1)
-    training_images = mat["training_images"] # (24, 24, 3, 14607)
-    training_y = mat["training_y"] # (14607, 1)
-    validation_images = mat["validation_images"] # (24, 24, 3, 7303)
-    validation_y = mat["validation_y"] # (7303, 1)
+    test_images = mat["test_images"]  # (24, 24, 3, 20730)
+    test_y = mat["test_y"]  # (20730, 1)
+    training_images = mat["training_images"]  # (24, 24, 3, 14607)
+    training_y = mat["training_y"]  # (14607, 1)
+    validation_images = mat["validation_images"]  # (24, 24, 3, 7303)
+    validation_y = mat["validation_y"]  # (7303, 1)
 
     ## dataset preparation
     training_x, validation_x, test_x = util.reshape_and_normalize(training_images, validation_images, test_images)
-    r,c = training_x.shape
+    r, c = training_x.shape
     
-    ## training linear regression model
-    #-------------------------------------------------------------------#
-    # TODO: Select values for the learning rate (mu), batch size
-    # (batch_size) and number of iterations (num_iterations), as well as
-    # initial values for the model parameters (Theta) that will result in
-    # fast training of an accurate model for this classification problem.
-    #-------------------------------------------------------------------#
-    
-    mu_range = 0.001
-    batch_size = 30
+    ## Number of iterations
     num_iterations = 300
-    Theta = 0.02*np.random.rand(c+1, 1)
-    
-
     xx = np.arange(num_iterations)
-    loss = np.empty(*xx.shape)
-    loss[:] = np.nan
-    validation_loss = np.empty(*xx.shape)
-    validation_loss[:] = np.nan
-    g = np.empty(*xx.shape)
-    g[:] = np.nan
 
-    fig = plt.figure(figsize=(8,8))
+    # Define ranges for mu and batch_size
+    mu_range = [0.001, 0.01, 0.1, 0.5]  # Learning rates
+    batch_size_range = [32, 64, 128, 256]  # Batch sizes
+
+    # Number of random samples to try
+    num_random_searches = 10
+
+    best_mu = None
+    best_batch_size = None
+    best_val_loss = float('inf')  # Initialize to a large value
+
+    # Random search over combinations of mu and batch_size
+    for _ in range(num_random_searches):
+        # Randomly sample hyperparameters
+        mu = random.choice(mu_range)
+        batch_size = random.choice(batch_size_range)
+
+        print(f"Testing mu={mu}, batch_size={batch_size}")
+
+        # Initialize loss arrays for the current random search
+        training_loss = np.full(xx.shape, np.nan)
+        validation_loss = np.full(xx.shape, np.nan)
+
+        # Re-initialize Theta for each run
+        Theta = 0.02 * np.random.rand(c + 1, 1)
+
+        # Training loop
+        for k in np.arange(num_iterations):
+            # pick a batch at random
+            idx = np.random.randint(training_x.shape[0], size=batch_size)
+
+            training_x_ones = util.addones(training_x[idx, :])
+            validation_x_ones = util.addones(validation_x)
+
+            # The loss function for this particular batch
+            loss_fun = lambda Theta: cad.lr_nll(training_x_ones, training_y[idx], Theta)
+
+            # Gradient descent update
+            Theta = Theta - mu * cad.lr_agrad(training_x_ones, training_y[idx], Theta).T
+
+            # Record training and validation loss
+            training_loss[k] = loss_fun(Theta) / batch_size
+            validation_loss[k] = cad.lr_nll(validation_x_ones, validation_y, Theta) / validation_x.shape[0]
+
+        # Final validation loss after training
+        final_val_loss = validation_loss[-1]
+        
+        final_training_loss = training_loss[-1]
+
+        # Update best hyperparameters if this run is better
+        if final_val_loss < best_val_loss:
+            best_mu = mu
+            best_batch_size = batch_size
+            best_val_loss = final_val_loss
+            best_training_loss = final_training_loss
+
+        # Plot training vs validation loss for each run
+        plt.plot(training_loss, label='Training Loss')
+        plt.plot(validation_loss, label='Validation Loss')
+        plt.title(f'mu={mu}, batch_size={batch_size}')
+        plt.xlabel('Iteration')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.show()
+
+    # Print the best combination of hyperparameters
+    print(f"Best hyperparameters: mu={best_mu}, batch_size={best_batch_size}")
+    print(f"Best validation loss: {best_val_loss}")
+
+    # Final plot for the best hyperparameters
+    fig = plt.figure(figsize=(8, 8))
     ax2 = fig.add_subplot(111)
     ax2.set_xlabel('Iteration')
     ax2.set_ylabel('Loss (average per sample)')
-    ax2.set_title('mu = '+str(mu))
-    h1, = ax2.plot(xx, loss, linewidth=2) #'Color', [0.0 0.2 0.6],
-    h2, = ax2.plot(xx, validation_loss, linewidth=2) #'Color', [0.8 0.2 0.8],
+    ax2.plot(xx, best_training_loss, linewidth=2, label="Training Loss")
+    ax2.plot(xx, best_val_loss, linewidth=2, label="Validation Loss")
     ax2.set_ylim(0, 0.7)
     ax2.set_xlim(0, num_iterations)
     ax2.grid()
-
-    text_str2 = 'iter.: {}, loss: {:.3f}, val. loss: {:.3f}'.format(0, 0, 0)
-    txt2 = ax2.text(0.3, 0.95, text_str2, bbox={'facecolor': 'white', 'alpha': 1, 'pad': 10}, transform=ax2.transAxes)
-
-    for k in np.arange(num_iterations):
-        # pick a batch at random
-        idx = np.random.randint(training_x.shape[0], size=batch_size)
-
-        training_x_ones = util.addones(training_x[idx,:])
-        validation_x_ones = util.addones(validation_x)
-
-        # the loss function for this particular batch
-        loss_fun = lambda Theta: cad.lr_nll(training_x_ones, training_y[idx], Theta)
-
-        # gradient descent
-        # instead of the numerical gradient, we compute the gradient with
-        # the analytical expression, which is much faster
-        Theta_new = Theta - mu*cad.lr_agrad(training_x_ones, training_y[idx], Theta).T
-
-        loss[k] = loss_fun(Theta_new)/batch_size
-        validation_loss[k] = cad.lr_nll(validation_x_ones, validation_y, Theta_new)/validation_x.shape[0]
-
-        # visualize the training
-        h1.set_ydata(loss)
-        h2.set_ydata(validation_loss)
-        text_str2 = 'iter.: {}, loss: {:.3f}, val. loss={:.3f} '.format(k, loss[k], validation_loss[k])
-        txt2.set_text(text_str2)
-
-        Theta = None
-        Theta = np.array(Theta_new)
-        Theta_new = None
-        tmp = None
-
-        display(fig)
-        clear_output(wait = True)
-        plt.pause(.005)
+    plt.legend()
+    plt.show()
 
 ## Edited version of 2.3's Training class (with editable parameters)
 class Training:
@@ -341,3 +357,5 @@ class Training:
 
         print(f'Best parameters: {best_params}, with validation accuracy: {best_acc}')
         return best_params
+
+    
