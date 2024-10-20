@@ -1,9 +1,15 @@
 """
 Project code for CAD topics.
+----------------------------------------
+This file contains the bulk of the surface code used to apply our methods and obtain our results.
+Some functions/classes in this file mirror those in course-given files, with some minor changes or in some cases
+no change. Though code-wise inefficient, this has been done on purpose, as to be as transparent as possible about 
+what code provides the core structure of the program.
 """
 
 import numpy as np
 import cad_util as util
+import matplotlib
 import matplotlib.pyplot as plt
 import registration as reg
 import cad
@@ -11,7 +17,6 @@ import scipy
 from IPython.display import display, clear_output
 import scipy.io
 import random
-
 
 def nuclei_measurement():
 
@@ -231,10 +236,10 @@ class Training:
 
         # randomly initialize model weights
         self.weights = util.init_model(self.w1_shape, self.w2_shape)
-
+        acc_height = 0.8
         print('> Start training ...')
+
         # Train for n_epochs epochs
-        
         for epoch in range(n_epochs): 
 
             # Shuffle training images every epoch
@@ -267,6 +272,9 @@ class Training:
 
             # Plot loss function and accuracy of validation set
             if show_plots:
+
+                acc_height = max([accuracy + 0.02,acc_height])
+
                 clear_output(wait=True)
                 fig, ax = plt.subplots(1,2, figsize=(15,5))
                 ax[0].plot(steps,training_loss)
@@ -278,7 +286,7 @@ class Training:
                 ax[1].plot(Acc)
                 ax[1].set_title(f'Validation accuracy after {epoch+1}/{n_epochs} epochs')
                 ax[1].set_ylabel('Accuracy'); ax[1].set_xlabel('epochs')
-                ax[1].set_xlim([0, 100]); ax[1].set_ylim([min(Acc),0.8])
+                ax[1].set_xlim([0, 100]); ax[1].set_ylim([min(Acc),acc_height])
                 plt.show()
         print(f'> Training finished with accuracy = {accuracy}')
 
@@ -302,7 +310,14 @@ class Training:
         plt.xlabel('Prediction')
         plt.title('Final test set predictions')
         plt.show()
-        
+
+        # Plot confusion matrix
+        true_large_pred_large = len([num for num in large_list if num > 0.5])
+        true_large_pred_small = len([num for num in large_list if num <= 0.5])
+        true_small_pred_large = len([num for num in small_list if num > 0.5])
+        true_small_pred_small = len([num for num in small_list if num <= 0.5])
+        plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small)
+
     def forward(self, x, weights):
         w1 = weights['w1']
         w2 = weights['w2']
@@ -327,7 +342,7 @@ class Training:
                 'w2': w2}
 
 
-    def get_hyperparameters(self, n_trials=30):
+    def get_hyperparameters(self, n_trials=30, n_epochs=10):
         # parameter ranges
         learning_rate_range = [0.001, 0.05]
         batch_size_range = [128, 512]
@@ -337,6 +352,7 @@ class Training:
         print("> Start random hyperparametric search ...")
 
         run = 0
+        best_params = []
         for _ in range(n_trials):
             lr = random.uniform(*learning_rate_range)
             batch = random.randint(*batch_size_range)
@@ -347,15 +363,47 @@ class Training:
             # Define the model with current set of hyperparameters
             self.define_shapes(lr, batch, hidden_features)
 
-            # Train the model for a small number of epochs
-            accuracy = self.launch_training(n_epochs=10)
+            # Train the model for a small number of epochs so it doesn't take ages
+            accuracy = self.launch_training(n_epochs)
             run += 1
-            print(f"(Trial {run}/{n_trials}")
+            print(f"(Trial {run}/{n_trials} finished)")
             if accuracy > best_acc:
                 best_acc = accuracy
-                best_params = {'learning_rate': lr, 'batch_size': batch, 'hidden_features': hidden_features}
+                best_params = {lr, batch, hidden_features}
 
-        print(f'Best parameters: {best_params}, with validation accuracy: {best_acc}')
+        print(f'Best parameters (lr, batch, features): {best_params}, with validation accuracy: {best_acc}')
         return best_params
 
+<<<<<<< HEAD
     
+=======
+
+def plot_confusion_matrix(true_positives=0,false_positives=0,true_negatives=0,false_negatives=0, title="insert a title"):
+    matrix = np.array([[false_negatives,true_positives],
+                       [true_negatives,false_positives]])
+
+    fig, ax = plt.subplots()
+    im = ax.imshow(matrix,cmap="Reds")
+    fig.colorbar(matplotlib.cm.ScalarMappable(cmap="Reds"), ax=ax)
+    
+    labels = [["small","big"],["big","small"]]
+    # Show all ticks and label them with the respective list entries
+    ax.set_xticks(np.arange(2), labels=labels[0])
+    ax.set_yticks(np.arange(2), labels=labels[1])
+    ax.set_ylabel("Labeled")
+    ax.set_xlabel("Predicted")
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+            rotation_mode="anchor")
+    # Loop over data dimensions and create text annotations.
+    for i in range(2):
+        for j in range(2):
+            value = matrix[i, j]
+            COLOR = "w" if value > 0.5*max(matrix.flatten()) else "k"
+            text = ax.text(j, i, value, ha="center", va="center", color=COLOR)
+    # Loop over data dimensions and create text annotations.
+
+    ax.set_title(title)
+    fig.tight_layout()
+    plt.show()
+>>>>>>> 8ad9d671a2ba89dcfb9063e91816459af88e5ebf
