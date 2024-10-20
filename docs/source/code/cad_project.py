@@ -80,6 +80,7 @@ def nuclei_measurement():
 
 def nuclei_classification():
     ## dataset preparation
+    
     fn = '../data/nuclei_data_classification.mat'
     mat = scipy.io.loadmat(fn)
 
@@ -91,7 +92,8 @@ def nuclei_classification():
     validation_y = mat["validation_y"] # (7303, 1)
 
     ## dataset preparation
-    training_x, validation_x, test_x = util.reshape_and_normalize(training_images, validation_images, test_images)      
+    training_x, validation_x, test_x = util.reshape_and_normalize(training_images, validation_images, test_images)
+    r,c = training_x.shape
     
     ## training linear regression model
     #-------------------------------------------------------------------#
@@ -100,6 +102,12 @@ def nuclei_classification():
     # initial values for the model parameters (Theta) that will result in
     # fast training of an accurate model for this classification problem.
     #-------------------------------------------------------------------#
+    
+    mu_range = 0.001
+    batch_size = 30
+    num_iterations = 300
+    Theta = 0.02*np.random.rand(c+1, 1)
+    
 
     xx = np.arange(num_iterations)
     loss = np.empty(*xx.shape)

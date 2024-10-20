@@ -191,13 +191,13 @@ def logistic_regression():
 
     # we are actually using stochastic gradient descent
     batch_size = 30
+    
+    # number of gradient descent iterations
+    num_iterations = 300
 
     # initialize the parameters of the model with small random values,
     # we need one parameter for each feature and a bias
     Theta = 0.02*np.random.rand(c+1, 1)
-
-    # number of gradient descent iterations
-    num_iterations = 300
 
     # variables to keep the loss and gradient at every iteration
     # (needed for visualization)
