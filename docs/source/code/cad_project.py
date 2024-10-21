@@ -210,84 +210,97 @@ def nuclei_classificationnn():
 
 def KNearest(k=3):
     """
-    Runs K-Nearest Neighbors classification on nuclei data from a .mat file.
+    Runs K-Nearest Neighbors classification on nuclei data from a .mat file using all principal components.
     
     Parameters:
-    mat_file_path: str, path to the .mat file containing nuclei data
-    k: int, number of neighbors to consider in K-NN (default is 5)
+    k: int, number of neighbors to consider in K-NN (default is 3)
     
     Returns:
     predictions: numpy array, predicted labels for the test images
     accuracy: float, accuracy of the K-NN classifier on the test data (if test labels are provided)
     """
-
+    
     # Load data from the .mat file
     fn = '../data/nuclei_data.mat'
     mat = scipy.io.loadmat(fn)
     
     # Extract test and training images, and labels
-    test_images = mat["test_images"]  # shape (24, 24, 3, 20730)
-    test_y = mat.get("test_y")  # shape (20730, 1), optional test labels
-    training_images = mat["training_images"]  # shape (24, 24, 3, 21910)
-    training_y = mat["training_y"]  # shape (21910, 1)
+    test_images = mat["test_images"]
+    test_y = mat.get("test_y")
+    training_images = mat["training_images"]
+    training_y = mat["training_y"]
+    
     # Flatten the entire original training set (all nuclei)
-    training_x_full = training_images.reshape(21910, -1).astype(float)  # Shape: (21910, 1728)
+    training_x_full = training_images.reshape(21910, -1).astype(float)
     print(training_x_full.shape)
+    
     # Sort indices of small and large nuclei based on the labels
-    sort_ix = np.argsort(training_y, axis=0).ravel()  # Flatten the sorting indices
+    sort_ix = np.argsort(training_y, axis=0).ravel()
     sort_ix_low = sort_ix[:300]  # Indices of the 300 smallest nuclei
     sort_ix_high = sort_ix[-300:]  # Indices of the 300 largest nuclei
     
     # Initialize a label array with NaN for all entries (21910 total)
-    labels = np.full((training_x_full.shape[0], 1), np.nan)  # Shape: (21910, 1)
+    labels = np.full((training_x_full.shape[0], 1), np.nan)
     
     # Assign 0 to the smallest 300 nuclei and 1 to the largest 300 nuclei
     labels[sort_ix_low] = 0  # Label for the smallest nuclei
     labels[sort_ix_high] = 1  # Label for the largest nuclei
     
+    # Apply PCA to reduce dimensionality (retain 95% of the variance)
     pca = PCA(n_components=0.95)
     training_x_pca = pca.fit_transform(training_x_full)
-    training_x_combined = np.hstack((training_x_pca, labels))  # Shape: (21910, 1729)
+    training_x_combined = np.hstack((training_x_pca, labels))
     
-    # give information
-    explained = pca.explained_variance_ratio_.cumsum()[-1]*100
+    # Provide information about the PCA transformation
+    explained = pca.explained_variance_ratio_.cumsum()[-1] * 100
     num_components = pca.components_.shape[0]
     print(f"{explained:.1f}% explained using {num_components} components.")
-
-    small_nuclei = training_x_combined[training_x_combined[:, 5] == 0]
-    large_nuclei = training_x_combined[training_x_combined[:, 5] == 1]
-    Combined_Data = np.vstack((small_nuclei, large_nuclei))
-
-    test_x = test_images.reshape(20730, -1).astype(float)  # Shape: (20730, 1728)
-    # Apply the previously trained PCA transformation on the test data
-    X_Test_Pca = pca.transform(test_x)
-    X_Test_Pca = X_Test_Pca[:300]
-    Twos_column = np.zeros((X_Test_Pca.shape[0],1))
-    Test_Images_Twos = np.hstack((X_Test_Pca, Twos_column))
     
+    # Select small and large nuclei based on labels
+    small_nuclei = training_x_combined[training_x_combined[:, -1] == 0]
+    large_nuclei = training_x_combined[training_x_combined[:, -1] == 1]
+    combined_data = np.vstack((small_nuclei, large_nuclei))
     
-    def distance(x1, y1, x2, y2, x3, y3, x4, y4, x5, y5):
-        return np.sqrt(((x1-y1) * 2) + ((x2-y2) * 2) + ((x3-y3) * 2) + ((x4-y4) * 2) + ((x5-y5) ** 2))
-
-    def KNN(DataSet, image, k):
-        Distance = []
-        DistanceList = []
-        for P1, P2, P3, P4, P5, Label in DataSet:
-            Distance = distance(image[0], P1, image[1], P2, image[2], P3, image[3], P4, image[4], P5)
-            DistanceList.append((Distance, Label))
-        Distance.sort
-        DistanceList = sorted(DistanceList, key=lambda x: x[0])
-        count_small = sum(1 for item in DistanceList[:k] if item[1] == 0)
-        count_big = sum(1 for item in DistanceList[:k] if item[1] == 1)
+    # Prepare test images and apply the same PCA transformation
+    test_x = test_images.reshape(20730, -1).astype(float)
+    test_x_pca = pca.transform(test_x)
+    test_x_pca = test_x_pca[:300]  # Use only the first 300 samples
+    
+    # Create a column for the predicted labels (initially all 2)
+    twos_column = np.full((test_x_pca.shape[0], 1), np.nan)
+    test_images_twos = np.hstack((test_x_pca, twos_column))
+    
+    # Generalized Euclidean distance function (for n dimensions)
+    def distance(x, y):
+        print(len(x), len(y))
+        return np.sqrt(np.sum((x - y) ** 2))
+    
+    # KNN function that works with any number of PCA components
+    def KNN(dataset, image, k):
+        distances = []
+        for data_point in dataset:
+            dist = distance(image[:-1], data_point[:-1])  # Compare using all PCA components
+            distances.append((dist, data_point[-1]))  # Store distance and label
+        
+        # Sort by distance and select the k nearest neighbors
+        distances = sorted(distances, key=lambda x: x[0])
+        k_nearest = distances[:k]
+        
+        # Count the number of small and large nuclei in the nearest neighbors
+        count_small = sum(1 for d in k_nearest if d[1] == 0)
+        count_big = sum(1 for d in k_nearest if d[1] == 1)
+        
+        # Assign label based on the majority vote
         if count_small > count_big:
-            image[5] = 0
-            #print("small bitch")
+            image[-1] = 0  # Assign 'small nuclei' label
+            print("small")
         else:
-            image[5] = 1
-            #print("big bitch")
-
-    for image in Test_Images_Twos:
-        KNN(Combined_Data, image, 3)
+            image[-1] = 1  # Assign 'large nuclei' label
+            print("large")
+    
+    # Run KNN on all test images
+    for image in test_images_twos:
+        KNN(combined_data, image, k)
 
 ## Edited version of 2.3's Training class (with editable parameters)
 class Training:
