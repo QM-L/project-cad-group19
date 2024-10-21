@@ -327,6 +327,47 @@ class Training:
         #util.visualize_big_small_images(self.training_x, self.training_y, training_images.shape)
         #util.visualize_big_small_images(training_images, self.training_y)
 
+    def data_preprocessing_PCA(self):
+        ## load dataset (images and labels y)
+        fn = '../data/nuclei_data_classification.mat'
+        mat = scipy.io.loadmat(fn)
+
+        training_images = mat["training_images"]
+        self.training_y = mat["training_y"]
+
+        validation_images = mat["validation_images"]
+        self.validation_y = mat["validation_y"]
+
+        test_images = mat["test_images"]
+        self.test_y = mat["test_y"]
+
+        ## dataset preparation
+        # Reshape matrices and normalize pixel values
+        self.training_x, self.validation_x, self.test_x = util.reshape_and_normalize(training_images, validation_images, test_images)
+
+        # Flatten the images for PCA
+        num_train_samples,_ = self.training_x.shape
+        num_val_samples,_ = self.validation_x.shape
+        num_test_samples,_ = self.test_x.shape
+
+        self.training_x_flat = self.training_x.reshape(num_train_samples, -1)
+        self.validation_x_flat = self.validation_x.reshape(num_val_samples, -1)
+        self.test_x_flat = self.test_x.reshape(num_test_samples, -1)
+
+        # Apply PCA
+        pca = PCA(n_components=0.95)  # Keep 95% of the explained variance
+        pca.fit(self.training_x_flat)
+
+        # Provide information about the PCA transformation
+        explained = pca.explained_variance_ratio_.cumsum()[-1] * 100
+        num_components = pca.components_.shape[0]
+        print(f"{explained:.1f}% explained using {num_components} components.")
+
+        # Transform datasets
+        self.training_x = pca.transform(self.training_x_flat)
+        self.validation_x = pca.transform(self.validation_x_flat)
+        self.test_x = pca.transform(self.test_x_flat)
+
     def define_shapes(self, learning_rate, batchsize, n_hidden_features):
 
         self.learning_rate = learning_rate
@@ -434,6 +475,9 @@ class Training:
         true_small_pred_large = len([num for num in small_list if num > 0.5])
         true_small_pred_small = len([num for num in small_list if num <= 0.5])
         plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small)
+
+        accuracy = (true_large_pred_large+true_small_pred_small)/(len(large_list)+len(small_list))
+        return accuracy
 
     def forward(self, x, weights):
         w1 = weights['w1']
