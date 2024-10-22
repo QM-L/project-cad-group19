@@ -102,7 +102,7 @@ def nuclei_measurement():
 
     plt.show()
     
-def nuclei_classificationnn():
+def nuclei_classification(use_PCA=False, plot=True,static_params=[]):
     ## dataset preparation
     
     fn = '../data/nuclei_data_classification.mat'
@@ -119,8 +119,42 @@ def nuclei_classificationnn():
     training_x, validation_x, test_x = util.reshape_and_normalize(training_images, validation_images, test_images)
     r, c = training_x.shape
     
+    # Transform dataset to PCA if called for
+    if use_PCA:
+        # Flatten the images for PCA
+        num_train_samples,_ = training_x.shape
+        num_val_samples,_ = validation_x.shape
+        num_test_samples,_ = test_x.shape
+
+        # Define flattened
+        training_x_flat = training_x.reshape(num_train_samples, -1)
+        validation_x_flat = validation_x.reshape(num_val_samples, -1)
+        test_x_flat = test_x.reshape(num_test_samples, -1)
+
+        # Apply PCA
+        pca = PCA(n_components=0.95)  # Keep 95% of the explained variance
+        pca.fit(training_x_flat)
+
+        # Provide information about the PCA transformation
+        explained = pca.explained_variance_ratio_.cumsum()[-1] * 100
+        num_components = pca.components_.shape[0]
+        print(f"{explained:.1f}% explained using {num_components} components.")
+
+        # Transform datasets
+        training_x = pca.transform(training_x_flat)
+        validation_x = pca.transform(validation_x_flat)
+        test_x = pca.transform(test_x_flat)
+
+        # Flatten again
+        training_x = training_x.reshape(num_train_samples, -1)
+        validation_x = validation_x.reshape(num_val_samples, -1)
+        test_x = test_x.reshape(num_test_samples, -1)
+
+        # redefine c
+        r, c = training_x.shape
+
     ## Number of iterations
-    num_iterations = 300
+    num_iterations = 30 if (static_params == []) else 300
     
     #Define values for plotting
     xx = np.arange(num_iterations)
@@ -132,21 +166,26 @@ def nuclei_classificationnn():
     g[:] = np.nan
     
     # Define ranges for mu and batch_size
-    mu_range = [0.001, 0.01, 0.1, 0.5]  # Learning rates
-    batch_size_range = [32, 64, 128, 256]  # Batch sizes
+    mu_range = [0.0001, 0.01]  # Learning rates
+    batch_size_range = [32, 256]  # Batch sizes
 
-    # Number of random samples to try
-    num_random_searches = 10
+    # Number of random samples to try for search. if set params are given, set searches to 1
+    num_random_searches = 100 if (static_params == []) else 1
 
     best_mu = None
     best_batch_size = None
     best_val_loss = float('inf')  # Initialize to a large value
-    
+
     # Random search over combinations of mu and batch_size
     for _ in range(num_random_searches):
-        # Randomly sample hyperparameters
-        mu = random.choice(mu_range)
-        batch_size = random.choice(batch_size_range)
+        if (static_params == []):
+            # Randomly sample hyperparameters
+            mu = random.uniform(*mu_range)
+            batch_size = random.randint(*batch_size_range)
+        else:
+            # Set to given parameters
+            mu = static_params[0]
+            batch_size = static_params[1]
 
         print(f"Testing mu={mu}, batch_size={batch_size}")
         
@@ -192,21 +231,28 @@ def nuclei_classificationnn():
             best_val_loss = final_val_loss
             best_training_loss = final_training_loss
 
-        # Plot training vs validation loss for each run
-        fig2 = plt.figure(figsize=(7,8))
-        ax3 = fig2.add_subplot(111)
-        q1, = ax3.plot(training_loss, label='Training Loss')
-        q2, = ax3.plot(validation_loss, label='Validation Loss')
-        ax3.set_title(f'mu={mu}, batch_size={batch_size}')
-        ax3.set_xlabel('Iteration')
-        ax3.set_ylabel('Loss')
-        ax3.legend()
-        display(fig2)
-
+        if plot:
+            # Plot training vs validation loss for each run
+            fig2 = plt.figure(figsize=(7,8))
+            ax3 = fig2.add_subplot(111)
+            q1, = ax3.plot(training_loss, label='Training Loss')
+            q2, = ax3.plot(validation_loss, label='Validation Loss')
+            ax3.set_title(f'mu={mu}, batch_size={batch_size}')
+            ax3.set_xlabel('Iteration')
+            ax3.set_ylabel('Loss')
+            ax3.legend()
+            display(fig2)
+        else:
+            print(f"loss: {final_val_loss}")
+    
     # Print the best combination of hyperparameters
     print(f"Best hyperparameters: mu={best_mu}, batch_size={best_batch_size}, Theta={Theta}")
     print(f"Best validation loss: {best_val_loss}")
-
+    if (static_params == []):
+        # return best parameters if parameter search was performed
+        return best_mu, best_batch_size
+    else:
+        return Theta
 
 def KNearest(k=3):
     """
