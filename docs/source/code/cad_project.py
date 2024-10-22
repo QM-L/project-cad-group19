@@ -12,14 +12,12 @@ import numpy as np
 import cad_util as util
 import matplotlib
 import matplotlib.pyplot as plt
-import registration as reg
 import cad
 import scipy
-from IPython.display import display, clear_output
 import scipy.io
+from IPython.display import display, clear_output
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from collections import Counter
 from sklearn.decomposition import PCA
 
 def nuclei_measurement():
@@ -102,7 +100,7 @@ def nuclei_measurement():
 
     plt.show()
     
-def nuclei_classification(use_PCA=False, plot=True,static_params=[]):
+def nuclei_classification(use_PCA=False, plot=True,static_params=[],results=True):
     ## dataset preparation
     
     fn = '../data/nuclei_data_classification.mat'
@@ -144,11 +142,6 @@ def nuclei_classification(use_PCA=False, plot=True,static_params=[]):
         training_x = pca.transform(training_x_flat)
         validation_x = pca.transform(validation_x_flat)
         test_x = pca.transform(test_x_flat)
-
-        # Flatten again
-        training_x = training_x.reshape(num_train_samples, -1)
-        validation_x = validation_x.reshape(num_val_samples, -1)
-        test_x = test_x.reshape(num_test_samples, -1)
 
         # redefine c
         r, c = training_x.shape
@@ -233,7 +226,7 @@ def nuclei_classification(use_PCA=False, plot=True,static_params=[]):
 
         if plot:
             # Plot training vs validation loss for each run
-            fig2 = plt.figure(figsize=(7,8))
+            fig2 = plt.figure(figsize=(7, 8))
             ax3 = fig2.add_subplot(111)
             q1, = ax3.plot(training_loss, label='Training Loss')
             q2, = ax3.plot(validation_loss, label='Validation Loss')
@@ -241,33 +234,65 @@ def nuclei_classification(use_PCA=False, plot=True,static_params=[]):
             ax3.set_xlabel('Iteration')
             ax3.set_ylabel('Loss')
             ax3.legend()
-            display(fig2)
-        else:
-            print(f"loss: {final_val_loss}")
+            #display(fig2)
     
     # Print the best combination of hyperparameters
-    print(f"Best hyperparameters: mu={best_mu}, batch_size={best_batch_size}, Theta={Theta}")
+    print(f"Best hyperparameters: mu={best_mu}, batch_size={best_batch_size}")
     print(f"Best validation loss: {best_val_loss}")
+    
     if (static_params == []):
         # return best parameters if parameter search was performed
         return best_mu, best_batch_size
-    else:
-        return Theta
+    
+    # Return if no results are requested
+    if not results:
+        return None
+    
+    # if static params were given, pass the model on the test batch and return the accuracy
+    test_x_ones = util.addones(test_x)
+    pred_y = cad.sigmoid(np.array(test_x_ones.dot(Theta)))
 
-def KNearest(k=3):
+    # calc accuracy
+    test_accuracy = (test_y == np.round(pred_y)).sum()/(test_y.shape[0])
+    print('Test accuracy: {:.2f}'.format(test_accuracy))
+
+    # Plot final test predictions
+    large_list = pred_y[(test_y==1).flatten()]
+    small_list = pred_y[(test_y==0).flatten()]
+    plt.figure()
+    plt.hist(small_list, 50, alpha = 0.5)
+    plt.hist(large_list, 50, alpha = 0.5)
+    plt.legend(['Small (label = 0)','Large (label = 1)'], loc = 'upper center')
+    plt.xlabel('Prediction')
+    plt.title('Final test set predictions')
+    plt.show()
+
+    # Plot confusion matrix
+    true_large_pred_large = len([num for num in large_list if num > 0.5])
+    true_large_pred_small = len([num for num in large_list if num <= 0.5])
+    true_small_pred_large = len([num for num in small_list if num > 0.5])
+    true_small_pred_small = len([num for num in small_list if num <= 0.5])
+    title = "Confusion Matrix PCA+LG" if use_PCA else "Confusion Matrix LG"
+    plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small,title)
+
+def KNearestOptimized(k_values=[1, 3, 5, 7, 9], num_trials=10, batch_size=300):
     """
-    Runs K-Nearest Neighbors classification on nuclei data from a .mat file using all principal components.
+    Runs K-Nearest Neighbors classification on nuclei data using principal components up to
+    95% explained variance,
+    and selects the best K based on validation loss over random validation batches.
     
     Parameters:
-    k: int, number of neighbors to consider in K-NN (default is 3)
+    k_values: list, different values of K to test
+    num_trials: int, number of random validation samples to test
+    batch_size: int, number of random validation samples for each trial
     
     Returns:
-    predictions: numpy array, predicted labels for the test images
-    accuracy: float, accuracy of the K-NN classifier on the test data (if test labels are provided)
+    best_k: int, the value of K that minimizes validation loss
+    best_val_loss: float, the corresponding validation loss
     """
     
     # Load data from the .mat file
-    fn = '../data/nuclei_data.mat'
+    fn = '../data/nuclei_data_classification.mat'
     mat = scipy.io.loadmat(fn)
     
     # Extract test and training images, and labels
@@ -275,83 +300,163 @@ def KNearest(k=3):
     test_y = mat.get("test_y")
     training_images = mat["training_images"]
     training_y = mat["training_y"]
+    validation_images = mat["validation_images"]
+    validation_y = mat["validation_y"]
+
+    # Flatten and normalize the data
+    training_x, validation_x, test_x = util.reshape_and_normalize(training_images, validation_images, test_images)
     
-    # Flatten the entire original training set (all nuclei)
-    training_x_full = training_images.reshape(21910, -1).astype(float)
-    print(training_x_full.shape)
-    
-    # Sort indices of small and large nuclei based on the labels
-    sort_ix = np.argsort(training_y, axis=0).ravel()
-    sort_ix_low = sort_ix[:300]  # Indices of the 300 smallest nuclei
-    sort_ix_high = sort_ix[-300:]  # Indices of the 300 largest nuclei
-    
-    # Initialize a label array with NaN for all entries (21910 total)
-    labels = np.full((training_x_full.shape[0], 1), np.nan)
-    
-    # Assign 0 to the smallest 300 nuclei and 1 to the largest 300 nuclei
-    labels[sort_ix_low] = 0  # Label for the smallest nuclei
-    labels[sort_ix_high] = 1  # Label for the largest nuclei
-    
+    # Find indices of small (0) and large (1) nuclei
+    sort_ix_low = np.flatnonzero(training_y.flatten() == 0)[:700]  # Indices of the first 300 small nuclei
+    sort_ix_high = np.flatnonzero(training_y.flatten() == 1)[:700]  # Indices of the first 300 large nuclei
+
+    # Combine selected indices for labeled data
+    labeled_data_indices = np.concatenate((sort_ix_low, sort_ix_high))
+
     # Apply PCA to reduce dimensionality (retain 95% of the variance)
     pca = PCA(n_components=0.95)
-    training_x_pca = pca.fit_transform(training_x_full)
-    training_x_combined = np.hstack((training_x_pca, labels))
+    training_x_pca = pca.fit_transform(training_x)
+    validation_x_pca = pca.transform(validation_x)
+    test_x_pca = pca.transform(test_x)  # Apply PCA to the test set
     
-    # Provide information about the PCA transformation
-    explained = pca.explained_variance_ratio_.cumsum()[-1] * 100
-    num_components = pca.components_.shape[0]
-    print(f"{explained:.1f}% explained using {num_components} components.")
-    
-    # Select small and large nuclei based on labels
-    small_nuclei = training_x_combined[training_x_combined[:, -1] == 0]
-    large_nuclei = training_x_combined[training_x_combined[:, -1] == 1]
-    combined_data = np.vstack((small_nuclei, large_nuclei))
-    
-    # Prepare test images and apply the same PCA transformation
-    test_x = test_images.reshape(20730, -1).astype(float)
-    test_x_pca = pca.transform(test_x)
-    test_x_pca = test_x_pca[:300]  # Use only the first 300 samples
-    
-    # Create a column for the predicted labels (initially all 2)
-    twos_column = np.full((test_x_pca.shape[0], 1), np.nan)
-    test_images_twos = np.hstack((test_x_pca, twos_column))
-    
+    # Filter the PCA data and labels for only the selected small and large nuclei
+    labeled_training_x_pca = training_x_pca[labeled_data_indices]  # Only the 600 labeled samples
+    labeled_labels = training_y[labeled_data_indices]  # Only the labels of the 600 samples
+
+    # Combine PCA-transformed data with labels for only the labeled nuclei
+    training_x_combined = np.hstack((labeled_training_x_pca, labeled_labels.reshape(-1, 1)))
+
+    # Initialize variables for tracking the best k
+    best_k = None
+    best_val_loss = float('inf')
+    best_val_predictions = None
+
+    # Track the loss for each k value
+    k_losses = []
+
     # Generalized Euclidean distance function (for n dimensions)
     def distance(x, y):
-        print(len(x), len(y))
         return np.sqrt(np.sum((x - y) ** 2))
     
     # KNN function that works with any number of PCA components
     def KNN(dataset, image, k):
+        
         distances = []
         for data_point in dataset:
-            dist = distance(image[:-1], data_point[:-1])  # Compare using all PCA components
+         
+            dist = distance(image, data_point[:-1])  # Compare using all PCA components
             distances.append((dist, data_point[-1]))  # Store distance and label
         
         # Sort by distance and select the k nearest neighbors
+
         distances = sorted(distances, key=lambda x: x[0])
         k_nearest = distances[:k]
         
         # Count the number of small and large nuclei in the nearest neighbors
         count_small = sum(1 for d in k_nearest if d[1] == 0)
         count_big = sum(1 for d in k_nearest if d[1] == 1)
-        
         # Assign label based on the majority vote
-        if count_small > count_big:
-            image[-1] = 0  # Assign 'small nuclei' label
-            print("small")
-        else:
-            image[-1] = 1  # Assign 'large nuclei' label
-            print("large")
+        return 0 if count_small > count_big else 1
     
-    # Run KNN on all test images
-    for image in test_images_twos:
-        KNN(combined_data, image, k)
+    # Iterate over different k values
+    print(f"Labeled data shape: {training_x_combined.shape}")
+    for k in k_values:
+        print(f"Testing K = {k}")
+        trial_losses = []  # To store the validation loss for each trial
+        
+        # Repeat for multiple random trials
+        for trial in range(num_trials):
+            # Randomly select a batch of validation samples
+            random_indices = random.sample(range(validation_x_pca.shape[0]), batch_size)
+            val_images_batch = validation_x_pca[random_indices]
+            val_labels_batch = validation_y[random_indices]
+
+            # List to store predictions for the validation batch
+            val_predictions = []
+            
+            # Run KNN on the selected validation batch
+            for val_image in val_images_batch:
+
+                val_image_with_label = val_image
+                # Predict the label using KNN
+                predicted_label = KNN(training_x_combined, val_image_with_label, k)
+                val_predictions.append(predicted_label)
+            
+            # Convert the predicted labels into a numpy array
+            val_predictions = np.array(val_predictions).reshape(-1, 1)
+            
+            # Calculate the validation loss (Mean Squared Error)
+            val_loss = np.mean((val_predictions - val_labels_batch) ** 2)
+            trial_losses.append(val_loss)
+
+        # Calculate the mean loss over all trials for this k
+        mean_val_loss = np.mean(trial_losses)
+        k_losses.append(mean_val_loss)
+
+        print(f"Validation loss for K = {k}: {mean_val_loss}")
+        
+        # Update the best K and validation loss if this one is better
+        if mean_val_loss < best_val_loss:
+            best_k = k
+            best_val_loss = mean_val_loss
+            best_val_predictions = val_predictions
+
+    # Plot validation loss vs K values
+    plt.figure(figsize=(10, 6))
+    plt.plot(k_values, k_losses, marker='o', linestyle='-', color='b')
+    plt.title("Validation Loss vs K values")
+    plt.xlabel("K")
+    plt.ylabel("Validation Loss")
+    plt.xticks(k_values)
+    plt.grid(True)
+    plt.show()
+
+    # Test accuracy calculation using the best K
+    print(f"Best K: {best_k}, with validation loss: {best_val_loss}")
+    
+    test_predictions = []
+    for test_image in test_x_pca:
+        predicted_label = KNN(training_x_combined, test_image, best_k)
+        test_predictions.append(predicted_label)
+    
+    # Convert test predictions to numpy array
+    test_predictions = np.array(test_predictions).reshape(-1, 1)
+
+    # Calculate test accuracy
+    test_accuracy = np.mean(test_predictions == test_y)
+
+    print(f"Test Accuracy with K = {best_k}: {test_accuracy}")
+    
+    # Plot final test predictions
+    large_list = test_predictions[test_y==1]
+    small_list = test_predictions[test_y==0]
+    plt.figure()
+    plt.hist(small_list, 50, alpha = 0.5)
+    plt.hist(large_list, 50, alpha = 0.5)
+    plt.legend(['Small (label = 0)','Large (label = 1)'], loc = 'upper center')
+    plt.xlabel('Prediction')
+    plt.title('Final test set predictions')
+    plt.show()
+
+    # Plot confusion matrix
+    true_large_pred_large = len([num for num in large_list if num > 0.5])
+    true_large_pred_small = len([num for num in large_list if num <= 0.5])
+    true_small_pred_large = len([num for num in small_list if num > 0.5])
+    true_small_pred_small = len([num for num in small_list if num <= 0.5])
+    title = "Confusion Matrix PCA+kNN"
+    plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small,title)
+
+
+    return best_k, best_val_loss, test_accuracy
+
+
+
 
 ## Edited version of 2.3's Training class (with editable parameters)
 class Training:
     
     def data_preprocessing(self):
+        self.use_PCA = False
         ## load dataset (images and labels y)
         fn = '../data/nuclei_data_classification.mat'
         mat = scipy.io.loadmat(fn)
@@ -374,6 +479,7 @@ class Training:
         #util.visualize_big_small_images(training_images, self.training_y)
 
     def data_preprocessing_PCA(self):
+        self.use_PCA = True
         ## load dataset (images and labels y)
         fn = '../data/nuclei_data_classification.mat'
         mat = scipy.io.loadmat(fn)
@@ -520,10 +626,9 @@ class Training:
         true_large_pred_small = len([num for num in large_list if num <= 0.5])
         true_small_pred_large = len([num for num in small_list if num > 0.5])
         true_small_pred_small = len([num for num in small_list if num <= 0.5])
-        plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small)
-
-        accuracy = (true_large_pred_large+true_small_pred_small)/(len(large_list)+len(small_list))
-        return accuracy
+        title = "Confusion Matrix PCA+cNN" if self.use_PCA else "Confusion Matrix cNN"
+        plot_confusion_matrix(true_large_pred_large,true_small_pred_large,true_small_pred_small,true_large_pred_small,title)
+        return test_accuracy
 
     def forward(self, x, weights):
         w1 = weights['w1']
